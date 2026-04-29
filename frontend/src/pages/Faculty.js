@@ -4,8 +4,9 @@ import React, { useEffect, useState } from "react";
 import API from "../services/api";
 
 // ── helper ──────────────────────────────────────────────────────────────────
-function initials(name = "") {
-  const parts = name.replace(/Dr\.\s*/i, "").split(" ");
+function initials(name) {
+  const n = typeof name === "object" ? JSON.stringify(name) : String(name || "");
+  const parts = n.replace(/Dr\.\s*/i, "").split(" ");
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
@@ -240,12 +241,12 @@ export default function Faculty() {
                       {col === "name" ? (
                         <div className="faculty-name-cell">
                           <div className="faculty-avatar">{initials(f[col])}</div>
-                          <span>{f[col]}</span>
+                          <span>{typeof f[col] === "object" ? JSON.stringify(f[col]) : String(f[col] || "—")}</span>
                         </div>
                       ) : col === "designation" ? (
-                        <><DesignationBadge des={f[col]} /> <span style={{ fontSize: 11, color: "#6b7280" }}>{f[col]}</span></>
+                        <><DesignationBadge des={String(f[col] || "")} /> <span style={{ fontSize: 11, color: "#6b7280" }}>{String(f[col] || "—")}</span></>
                       ) : (
-                        f[col]
+                        typeof f[col] === "object" ? JSON.stringify(f[col]) : String(f[col] || "—")
                       )}
                     </td>
                   ))}

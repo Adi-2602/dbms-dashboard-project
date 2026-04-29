@@ -37,9 +37,9 @@ function Donut({ slices, size = 120, thickness = 22 }) {
 function BarChart({ data, color = "#6366f1", height = 140 }) {
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height, paddingTop: 8 }}>
+    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-around", gap: 12, height, paddingTop: 8 }}>
       {data.map((d, i) => (
-        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%", justifyContent: "flex-end" }}>
+        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%", justifyContent: "flex-end", maxWidth: "140px" }}>
           <span style={{ fontSize: 10, color: "#6b7280", fontWeight: 500 }}>{d.value}</span>
           <div
             style={{
@@ -87,14 +87,31 @@ function groupBy(arr, key) {
 
 const PALETTE = ["#6366f1", "#06b6d4", "#f59e0b", "#10b981", "#f43f5e", "#8b5cf6", "#ec4899", "#14b8a6"];
 
-// FIX: safely convert any value (including nested objects / ObjectIds) to a renderable string
 function safeVal(v) {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "object") {
-    // MongoDB ObjectId or any nested doc — show its string form or JSON
-    return v.toString?.() !== "[object Object]" ? v.toString() : JSON.stringify(v);
+    const keys = Object.keys(v);
+    if (keys.length > 0) return String(v[keys[0]]);
+    return JSON.stringify(v);
   }
   return String(v);
+}
+
+// FIX: find a value by checking multiple possible key names (case-insensitive, space-insensitive)
+function findVal(obj, possibleKeys) {
+  if (!obj) return undefined;
+  for (let k of possibleKeys) {
+    if (obj[k] !== undefined) return obj[k];
+  }
+  const normalized = Object.keys(obj).reduce((acc, k) => {
+    acc[k.toLowerCase().replace(/\s/g, "")] = k;
+    return acc;
+  }, {});
+  for (let pk of possibleKeys) {
+    const nk = pk.toLowerCase().replace(/\s/g, "");
+    if (normalized[nk]) return obj[normalized[nk]];
+  }
+  return undefined;
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -118,18 +135,37 @@ export default function Dashboard() {
 
   // ── derived ──
   const deptData = useMemo(() => {
-    const g = groupBy(students, "department");
+    const g = students.reduce((acc, s) => {
+      const k = findVal(s, ["department", "Dept", "Department"]) || "Unknown";
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, {});
     return Object.entries(g).map(([label, value]) => ({ label: label.length > 8 ? label.slice(0, 8) + "…" : label, value }));
   }, [students]);
 
   const semData = useMemo(() => {
-    const g = groupBy(students, "semester");
+    const g = students.reduce((acc, s) => {
+      const k = findVal(s, ["semester", "Sem", "Semester"]) || "—";
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, {});
     return Object.entries(g).sort((a,b) => Number(a[0]) - Number(b[0])).map(([label, value]) => ({ label: `Sem ${label}`, value }));
   }, [students]);
 
   const desData = useMemo(() => {
-    const g = groupBy(faculty, "designation");
-    return Object.entries(g).map(([label, value], i) => ({ label, value, color: PALETTE[i % PALETTE.length] }));
+    const g = faculty.reduce((acc, f) => {
+      let k = String(findVal(f, ["designation", "Designation", "Role"]) || "").trim();
+      if (!k || !isNaN(k)) k = "Staff";
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, {});
+    
+    const entries = Object.entries(g).sort((a, b) => b[1] - a[1]);
+    const top = entries.slice(0, 5);
+    const otherCount = entries.slice(5).reduce((sum, e) => sum + e[1], 0);
+    if (otherCount > 0) top.push(["Other Roles", otherCount]);
+
+    return top.map(([label, value], i) => ({ label, value, color: PALETTE[i % PALETTE.length] }));
   }, [faculty]);
 
   const subjectCols = useMemo(() => {
@@ -193,7 +229,7 @@ export default function Dashboard() {
             <div className="db-grid">
 
               {/* ── Students by Dept bar chart ── */}
-              <div className="db-card db-card-wide">
+              <div className="db-card">
                 <div className="db-card-header">
                   <div>
                     <div className="db-card-label">Students</div>
@@ -202,7 +238,7 @@ export default function Dashboard() {
                   <span className="db-badge db-badge-indigo">{students.length} total</span>
                 </div>
                 {deptData.length > 0
-                  ? <BarChart data={deptData} color="#6366f1" height={150} />
+                  ? <BarChart data={deptData} color="#6366f1" height={180} />
                   : <Empty />}
               </div>
 
@@ -216,7 +252,7 @@ export default function Dashboard() {
                   <span className="db-badge db-badge-purple">{semData.length} sems</span>
                 </div>
                 {semData.length > 0
-                  ? <BarChart data={semData} color="#8b5cf6" height={150} />
+                  ? <BarChart data={semData} color="#8b5cf6" height={180} />
                   : <Empty />}
               </div>
 
@@ -231,7 +267,7 @@ export default function Dashboard() {
                 </div>
                 {desData.length > 0 ? (
                   <div className="db-donut-wrap">
-                    <Donut slices={desData} size={120} thickness={20} />
+                    <Donut slices={desData} size={160} thickness={28} />
                     <div className="db-legend">
                       {desData.map((d, i) => (
                         <div key={i} className="db-legend-item">
@@ -261,14 +297,26 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {students.slice(-6).reverse().map((s) => (
-                      <tr key={s._id}>
-                        <td><span className="db-avatar">{safeVal(s.name?.[0]).toUpperCase()}</span>{safeVal(s.name)}</td>
-                        <td className="db-mono">{safeVal(s.registerNo)}</td>
-                        <td>{safeVal(s.department)}</td>
-                        <td><span className="db-sem-badge">S{safeVal(s.semester)}</span></td>
-                      </tr>
-                    ))}
+                    {students.slice(-6).reverse().map((s) => {
+                      const name = safeVal(findVal(s, ["name", "Name", "Student Name", "studentName"]));
+                      const regNo = safeVal(findVal(s, ["registerNo", "Register No", "Reg No", "Registration Number", "registerNumber"]));
+                      const dept = safeVal(findVal(s, ["department", "Dept", "Department", "Branch"]));
+                      const sem = safeVal(findVal(s, ["semester", "Sem", "Semester"]));
+                      
+                      return (
+                        <tr key={s._id}>
+                          <td>
+                            <span className="db-avatar">
+                              {name !== "—" ? name.charAt(0).toUpperCase() : "S"}
+                            </span>
+                            {name}
+                          </td>
+                          <td className="db-mono">{regNo}</td>
+                          <td>{dept}</td>
+                          <td><span className="db-sem-badge">S{sem}</span></td>
+                        </tr>
+                      );
+                    })}
                     {students.length === 0 && <tr><td colSpan={4}><Empty /></td></tr>}
                   </tbody>
                 </table>
@@ -284,24 +332,27 @@ export default function Dashboard() {
                   <Link to="/faculty" className="db-link">View all →</Link>
                 </div>
                 <div className="db-faculty-list">
-                  {faculty.slice(0, 6).map((f) => (
-                    <div key={f._id} className="db-faculty-row">
-                      <div className="db-fac-avatar">
-                        {/* FIX: guard against empty strings before accessing [0] */}
-                        {safeVal(f.name)
-                          .replace(/Dr\.\s*/i, "")
-                          .split(" ")
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .map(w => w[0].toUpperCase())
-                          .join("")}
+                  {faculty.slice(0, 6).map((f) => {
+                    const name = safeVal(findVal(f, ["name", "Name", "Faculty Name", "Staff Name", "facultyName", "FacultyName", "staffName"]));
+                    const des = safeVal(findVal(f, ["designation", "Designation", "Role"]));
+                    return (
+                      <div key={f._id} className="db-faculty-row">
+                        <div className="db-fac-avatar">
+                          {name !== "—" ? name
+                            .replace(/Dr\.\s*/i, "")
+                            .split(" ")
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map(w => w[0].toUpperCase())
+                            .join("") : "—"}
+                        </div>
+                        <div className="db-fac-info">
+                          <div className="db-fac-name">{name}</div>
+                          <div className="db-fac-des">{des}</div>
+                        </div>
                       </div>
-                      <div className="db-fac-info">
-                        <div className="db-fac-name">{safeVal(f.name)}</div>
-                        <div className="db-fac-des">{safeVal(f.designation)}</div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {faculty.length === 0 && <Empty />}
                 </div>
               </div>
